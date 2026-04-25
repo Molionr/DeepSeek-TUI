@@ -36,6 +36,11 @@ pub struct HeaderData<'a> {
     /// Short label for the current reasoning-effort tier (e.g. "max", "high",
     /// "off"). Rendered as a chip when space allows.
     pub reasoning_effort_label: Option<&'a str>,
+    /// Short label for the active provider (e.g. "NIM"). When `None` (the
+    /// default-DeepSeek case), no provider chip is rendered. Surfaces the
+    /// fact that requests are going somewhere other than DeepSeek's API so
+    /// it's visible at a glance after a `/provider nvidia-nim`.
+    pub provider_label: Option<&'a str>,
 }
 
 impl<'a> HeaderData<'a> {
@@ -59,6 +64,7 @@ impl<'a> HeaderData<'a> {
             session_cost: 0.0,
             last_prompt_tokens: None,
             reasoning_effort_label: None,
+            provider_label: None,
         }
     }
 
@@ -66,6 +72,14 @@ impl<'a> HeaderData<'a> {
     #[must_use]
     pub fn with_reasoning_effort(mut self, label: Option<&'a str>) -> Self {
         self.reasoning_effort_label = label;
+        self
+    }
+
+    /// Attach a short provider label for the header chip. Pass `None` when on
+    /// the default DeepSeek provider so the chip is hidden.
+    #[must_use]
+    pub fn with_provider(mut self, label: Option<&'a str>) -> Self {
+        self.provider_label = label;
         self
     }
 
@@ -202,6 +216,22 @@ impl<'a> HeaderWidget<'a> {
         )]
     }
 
+    fn provider_chip_spans(&self) -> Vec<Span<'static>> {
+        let Some(label) = self.data.provider_label else {
+            return Vec::new();
+        };
+        let trimmed = label.trim();
+        if trimmed.is_empty() {
+            return Vec::new();
+        }
+        vec![Span::styled(
+            trimmed.to_string(),
+            Style::default()
+                .fg(palette::DEEPSEEK_SKY)
+                .add_modifier(Modifier::BOLD),
+        )]
+    }
+
     fn effort_chip_spans(&self, include_prefix: bool) -> Vec<Span<'static>> {
         let Some(label) = self.data.reasoning_effort_label else {
             return Vec::new();
@@ -234,14 +264,23 @@ impl<'a> HeaderWidget<'a> {
     ) -> Vec<Span<'static>> {
         let mut spans = Vec::new();
 
+        let provider_spans = self.provider_chip_spans();
+        let has_provider = !provider_spans.is_empty();
+        if has_provider {
+            spans.extend(provider_spans);
+        }
+
         let effort_spans = self.effort_chip_spans(true);
         let has_effort = !effort_spans.is_empty();
         if has_effort {
+            if has_provider {
+                spans.push(Span::raw("  "));
+            }
             spans.extend(effort_spans);
         }
 
         if self.data.is_streaming {
-            if has_effort {
+            if has_effort || has_provider {
                 spans.push(Span::raw("  "));
             }
             spans.push(Span::styled(
@@ -552,5 +591,40 @@ mod tests {
 
         assert!(rendered.contains("100%"));
         assert!(!rendered.contains("250%"));
+    }
+
+    #[test]
+    fn header_shows_provider_chip_when_set() {
+        let rendered = render_header(
+            HeaderData::new(
+                AppMode::Agent,
+                "deepseek-ai/deepseek-v4-flash",
+                "deepseek-tui",
+                false,
+                palette::DEEPSEEK_INK,
+            )
+            .with_provider(Some("NIM")),
+            72,
+        );
+        assert!(
+            rendered.contains("NIM"),
+            "expected NIM chip in header, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn header_hides_provider_chip_when_default_deepseek() {
+        let rendered = render_header(
+            HeaderData::new(
+                AppMode::Agent,
+                "deepseek-v4-pro",
+                "deepseek-tui",
+                false,
+                palette::DEEPSEEK_INK,
+            ),
+            72,
+        );
+        // Sanity: no `NIM` text leaks in when provider is None.
+        assert!(!rendered.contains("NIM"));
     }
 }

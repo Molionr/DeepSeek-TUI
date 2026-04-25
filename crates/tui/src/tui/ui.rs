@@ -2726,6 +2726,10 @@ fn render(f: &mut Frame, app: &mut App) {
             .filter(|value| !value.is_empty())
             .unwrap_or("workspace");
         let effort_label = app.reasoning_effort.short_label();
+        let provider_label = match app.api_provider {
+            crate::config::ApiProvider::Deepseek => None,
+            crate::config::ApiProvider::NvidiaNim => Some("NIM"),
+        };
         let header_data = HeaderData::new(
             app.mode,
             &app.model,
@@ -2739,7 +2743,8 @@ fn render(f: &mut Frame, app: &mut App) {
             app.session_cost,
             sanitized_prompt_tokens,
         )
-        .with_reasoning_effort(Some(effort_label));
+        .with_reasoning_effort(Some(effort_label))
+        .with_provider(provider_label);
         let header_widget = HeaderWidget::new(header_data);
         let buf = f.buffer_mut();
         header_widget.render(chunks[0], buf);
