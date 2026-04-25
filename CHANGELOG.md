@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-04-25
+
+### Fixed
+- DeepSeek V4 Pro cost estimates now use DeepSeek's current limited-time 75% discount until 2026-05-05 15:59 UTC, then automatically fall back to the base Pro rates.
+
 ## [0.4.5] - 2026-04-24
 
 ### Fixed
