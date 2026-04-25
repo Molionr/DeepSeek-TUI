@@ -10,6 +10,7 @@ pub mod diff_render;
 pub mod event_broker;
 pub mod history;
 pub mod markdown_render;
+pub mod model_picker;
 pub mod onboarding;
 pub mod pager;
 pub mod paste_burst;

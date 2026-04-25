@@ -74,7 +74,9 @@ pub fn exit() -> CommandResult {
     CommandResult::action(AppAction::Quit)
 }
 
-/// Switch or view current model
+/// Switch or view current model. With no argument, open the two-pane
+/// picker (Pro/Flash + thinking effort) per #39 — gives users a discoverable
+/// way to flip both knobs without memorising the docs.
 pub fn model(app: &mut App, model_name: Option<&str>) -> CommandResult {
     if let Some(name) = model_name {
         let Some(model_id) = normalize_model_name(name) else {
@@ -93,11 +95,7 @@ pub fn model(app: &mut App, model_name: Option<&str>) -> CommandResult {
             AppAction::UpdateCompaction(app.compaction_config()),
         )
     } else {
-        let common = COMMON_DEEPSEEK_MODELS.join(", ");
-        CommandResult::message(format!(
-            "Current model: {}\nUsage: /model <name>\nCommon models: {}\nTip: any valid DeepSeek model ID is accepted. Run /models to fetch live IDs from your API endpoint.",
-            app.model, common
-        ))
+        CommandResult::action(AppAction::OpenModelPicker)
     }
 }
 
@@ -371,15 +369,11 @@ mod tests {
     }
 
     #[test]
-    fn test_model_without_args_shows_info() {
+    fn test_model_without_args_opens_picker() {
         let mut app = create_test_app();
         let result = model(&mut app, None);
-        assert!(result.message.is_some());
-        let msg = result.message.unwrap();
-        assert!(msg.contains("Current model:"));
-        assert!(msg.contains("Common models:"));
-        assert!(msg.contains("any valid DeepSeek model ID"));
-        assert!(result.action.is_none());
+        assert_eq!(result.message, None);
+        assert_eq!(result.action, Some(AppAction::OpenModelPicker));
     }
 
     #[test]

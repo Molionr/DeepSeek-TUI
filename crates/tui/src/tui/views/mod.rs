@@ -26,6 +26,7 @@ pub enum ModalKind {
     Pager,
     SessionPicker,
     Config,
+    ModelPicker,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +79,17 @@ pub enum ViewEvent {
     SessionDeleted {
         session_id: String,
         title: String,
+    },
+    /// Emitted by the `/model` picker on Enter — carries both the chosen
+    /// model id and reasoning effort tier so the UI handler can update App
+    /// state, persist via `Settings`, and forward `Op::SetModel` to the
+    /// running engine. `previous_*` fields let the handler skip work when
+    /// nothing changed and craft a clear status message.
+    ModelPickerApplied {
+        model: String,
+        effort: crate::tui::app::ReasoningEffort,
+        previous_model: String,
+        previous_effort: crate::tui::app::ReasoningEffort,
     },
 }
 

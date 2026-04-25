@@ -1444,6 +1444,8 @@ pub enum AppAction {
         workspace: PathBuf,
     },
     OpenConfigView,
+    /// Open the `/model` two-pane picker (Pro/Flash + Off/High/Max).
+    OpenModelPicker,
     SendMessage(String),
     ListSubAgents,
     FetchModels,

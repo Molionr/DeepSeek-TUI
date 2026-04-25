@@ -2352,6 +2352,90 @@ async fn apply_model_and_compaction_update(
         .await;
 }
 
+/// Apply the choice made in the `/model` picker (#39): mutate App state so
+/// the next turn uses the new model/effort, persist the selection to
+/// `~/.deepseek/settings.toml` so it survives a restart, push the change to
+/// the running engine via `Op::SetModel`/`Op::SetCompaction`, and surface
+/// a one-line status describing what changed.
+async fn apply_model_picker_choice(
+    app: &mut App,
+    engine_handle: &EngineHandle,
+    model: String,
+    effort: crate::tui::app::ReasoningEffort,
+    previous_model: String,
+    previous_effort: crate::tui::app::ReasoningEffort,
+) {
+    let model_changed = model != previous_model;
+    let effort_changed = effort != previous_effort;
+    if !model_changed && !effort_changed {
+        app.status_message = Some(format!(
+            "Model unchanged: {model} · thinking {}",
+            effort.short_label()
+        ));
+        return;
+    }
+
+    if model_changed {
+        app.model = model.clone();
+        app.update_model_compaction_budget();
+        app.last_prompt_tokens = None;
+        app.last_completion_tokens = None;
+        app.last_prompt_cache_hit_tokens = None;
+        app.last_prompt_cache_miss_tokens = None;
+        app.last_reasoning_replay_tokens = None;
+    }
+    if effort_changed {
+        app.reasoning_effort = effort;
+    }
+
+    // Best-effort persist; surface a status warning if the settings file
+    // can't be written rather than aborting the in-memory change.
+    let mut persist_warning: Option<String> = None;
+    match crate::settings::Settings::load() {
+        Ok(mut settings) => {
+            if model_changed {
+                let _ = settings.set("default_model", &model);
+            }
+            if effort_changed {
+                let _ = settings.set("reasoning_effort", effort.as_setting());
+            }
+            if let Err(err) = settings.save() {
+                persist_warning = Some(format!("(not persisted: {err})"));
+            }
+        }
+        Err(err) => {
+            persist_warning = Some(format!("(not persisted: {err})"));
+        }
+    }
+
+    if model_changed {
+        apply_model_and_compaction_update(engine_handle, app.compaction_config()).await;
+    }
+
+    let mut summary = match (model_changed, effort_changed) {
+        (true, true) => format!(
+            "Model: {previous_model} → {model} · thinking: {} → {}",
+            previous_effort.short_label(),
+            effort.short_label()
+        ),
+        (true, false) => format!(
+            "Model: {previous_model} → {model} · thinking {}",
+            effort.short_label()
+        ),
+        (false, true) => format!(
+            "Thinking: {} → {} · model {model}",
+            previous_effort.short_label(),
+            effort.short_label()
+        ),
+        (false, false) => unreachable!(),
+    };
+    if let Some(warning) = persist_warning {
+        summary.push(' ');
+        summary.push_str(&warning);
+    }
+    app.status_message = Some(summary);
+}
+
 /// Apply a `/provider` switch by mutating the in-memory config, validating
 /// that credentials exist for the new provider, then respawning the engine
 /// so the API client picks up the new base URL/key. When `model_override`
@@ -2538,6 +2622,12 @@ async fn apply_command_result(
             AppAction::OpenConfigView => {
                 if app.view_stack.top_kind() != Some(ModalKind::Config) {
                     app.view_stack.push(ConfigView::new_for_app(app));
+                }
+            }
+            AppAction::OpenModelPicker => {
+                if app.view_stack.top_kind() != Some(ModalKind::ModelPicker) {
+                    app.view_stack
+                        .push(crate::tui::model_picker::ModelPickerView::new(app));
                 }
             }
             AppAction::CompactContext => {
@@ -3514,6 +3604,22 @@ async fn handle_view_events(
             ViewEvent::SubAgentsRefresh => {
                 app.status_message = Some("Refreshing sub-agents...".to_string());
                 let _ = engine_handle.send(Op::ListSubAgents).await;
+            }
+            ViewEvent::ModelPickerApplied {
+                model,
+                effort,
+                previous_model,
+                previous_effort,
+            } => {
+                apply_model_picker_choice(
+                    app,
+                    engine_handle,
+                    model,
+                    effort,
+                    previous_model,
+                    previous_effort,
+                )
+                .await;
             }
         }
     }
