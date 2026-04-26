@@ -2,7 +2,7 @@ mod footer;
 mod header;
 mod renderable;
 
-pub use footer::{FooterProps, FooterToast, FooterWidget};
+pub use footer::{FooterProps, FooterToast, FooterWidget, footer_agents_chip};
 pub use header::{HeaderData, HeaderWidget};
 pub use renderable::Renderable;
 

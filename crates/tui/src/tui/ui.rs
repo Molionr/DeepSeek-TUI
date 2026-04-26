@@ -3493,6 +3493,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &mut App) {
 
     let (state_label, state_color) = footer_state_label(app);
     let coherence = footer_coherence_spans(app);
+    let agents = crate::tui::widgets::footer_agents_chip(running_agent_count(app));
     let reasoning_replay = footer_reasoning_replay_spans(app);
     let cache = footer_cache_spans(app);
     let cost = if app.session_cost > 0.001 {
@@ -3510,6 +3511,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &mut App) {
         state_label,
         state_color,
         coherence,
+        agents,
         reasoning_replay,
         cache,
         cost,
@@ -3527,8 +3529,10 @@ fn render_footer(f: &mut Frame, area: Rect, app: &mut App) {
 fn footer_auxiliary_spans(app: &App, max_width: usize) -> Vec<Span<'static>> {
     // Context % is already shown in the header signal bar — don't
     // duplicate it in the footer. The footer carries unique info only:
-    // coherence state, reasoning replay tokens, cache hit rate, and session cost.
+    // coherence, in-flight sub-agents, reasoning replay tokens, cache hit
+    // rate, and session cost.
     let coherence_spans = footer_coherence_spans(app);
+    let agents_spans = crate::tui::widgets::footer_agents_chip(running_agent_count(app));
     let replay_spans = footer_reasoning_replay_spans(app);
     let cache_spans = footer_cache_spans(app);
     let cost_spans = if app.session_cost > 0.001 {
@@ -3540,12 +3544,17 @@ fn footer_auxiliary_spans(app: &App, max_width: usize) -> Vec<Span<'static>> {
         Vec::new()
     };
 
-    let parts: Vec<&Vec<Span<'static>>> =
-        [&coherence_spans, &replay_spans, &cache_spans, &cost_spans]
-            .iter()
-            .filter(|spans| !spans.is_empty())
-            .copied()
-            .collect();
+    let parts: Vec<&Vec<Span<'static>>> = [
+        &coherence_spans,
+        &agents_spans,
+        &replay_spans,
+        &cache_spans,
+        &cost_spans,
+    ]
+    .iter()
+    .filter(|spans| !spans.is_empty())
+    .copied()
+    .collect();
 
     // Try to fit as many parts as possible, dropping from the end.
     for end in (0..=parts.len()).rev() {

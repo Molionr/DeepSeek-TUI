@@ -39,6 +39,8 @@ pub struct FooterProps {
     pub state_color: Color,
     /// Coherence chip spans (empty when no active intervention).
     pub coherence: Vec<Span<'static>>,
+    /// Sub-agent count chip spans (empty when zero in-flight).
+    pub agents: Vec<Span<'static>>,
     /// Reasoning-replay chip spans (empty when zero / not applicable).
     pub reasoning_replay: Vec<Span<'static>>,
     /// Cache-hit-rate chip spans (empty when no usage reported).
@@ -47,6 +49,22 @@ pub struct FooterProps {
     pub cost: Vec<Span<'static>>,
     /// Optional toast that, when present, replaces the left status line.
     pub toast: Option<FooterToast>,
+}
+
+/// Build a "N agents" chip span list when there are sub-agents in flight.
+/// Empty list when N == 0 hides the chip entirely. Singular for N == 1
+/// reads naturally; plural otherwise.
+#[must_use]
+pub fn footer_agents_chip(running: usize) -> Vec<Span<'static>> {
+    if running == 0 {
+        return Vec::new();
+    }
+    let text = if running == 1 {
+        "1 agent".to_string()
+    } else {
+        format!("{running} agents")
+    };
+    vec![Span::styled(text, Style::default().fg(palette::DEEPSEEK_SKY))]
 }
 
 /// A status toast routed to the footer's left segment for a short time.
@@ -73,6 +91,7 @@ impl FooterProps {
         state_label: &'static str,
         state_color: Color,
         coherence: Vec<Span<'static>>,
+        agents: Vec<Span<'static>>,
         reasoning_replay: Vec<Span<'static>>,
         cache: Vec<Span<'static>>,
         cost: Vec<Span<'static>>,
@@ -85,6 +104,7 @@ impl FooterProps {
             state_label: state_label.to_string(),
             state_color,
             coherence,
+            agents,
             reasoning_replay,
             cache,
             cost,
@@ -121,6 +141,7 @@ impl FooterWidget {
     fn auxiliary_spans(&self, max_width: usize) -> Vec<Span<'static>> {
         let parts: Vec<&Vec<Span<'static>>> = [
             &self.props.coherence,
+            &self.props.agents,
             &self.props.reasoning_replay,
             &self.props.cache,
             &self.props.cost,
@@ -317,6 +338,7 @@ mod tests {
             Vec::<Span<'static>>::new(),
             Vec::<Span<'static>>::new(),
             Vec::<Span<'static>>::new(),
+            Vec::<Span<'static>>::new(),
         )
     }
 
@@ -331,6 +353,7 @@ mod tests {
         assert_eq!(props.mode_color, palette::MODE_AGENT);
         assert_eq!(props.model, "deepseek-v4-flash");
         assert!(props.coherence.is_empty());
+        assert!(props.agents.is_empty());
         assert!(props.cache.is_empty());
         assert!(props.cost.is_empty());
         assert!(props.reasoning_replay.is_empty());
@@ -349,10 +372,58 @@ mod tests {
             Vec::<Span<'static>>::new(),
             Vec::<Span<'static>>::new(),
             Vec::<Span<'static>>::new(),
+            Vec::<Span<'static>>::new(),
         );
 
         assert!(props.state_label.starts_with("thinking"));
         assert_eq!(props.state_color, palette::STATUS_WARNING);
+    }
+
+    // ---- agents chip wording ----
+    #[test]
+    fn footer_agents_chip_is_empty_when_no_agents_running() {
+        let chip = super::footer_agents_chip(0);
+        assert!(chip.is_empty(), "0 agents in flight → no chip");
+    }
+
+    #[test]
+    fn footer_agents_chip_uses_singular_for_one() {
+        let chip = super::footer_agents_chip(1);
+        assert_eq!(chip.len(), 1);
+        assert_eq!(chip[0].content.as_ref(), "1 agent");
+    }
+
+    #[test]
+    fn footer_agents_chip_uses_plural_for_many() {
+        let chip = super::footer_agents_chip(3);
+        assert_eq!(chip.len(), 1);
+        assert_eq!(chip[0].content.as_ref(), "3 agents");
+    }
+
+    #[test]
+    fn footer_agents_chip_renders_into_widget() {
+        let app = make_app();
+        let agents = super::footer_agents_chip(2);
+        let props = FooterProps::from_app(
+            &app,
+            None,
+            "ready",
+            palette::TEXT_MUTED,
+            Vec::<Span<'static>>::new(),
+            agents,
+            Vec::<Span<'static>>::new(),
+            Vec::<Span<'static>>::new(),
+            Vec::<Span<'static>>::new(),
+        );
+        let widget = FooterWidget::new(props);
+        let area = ratatui::layout::Rect::new(0, 0, 60, 1);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        widget.render(area, &mut buf);
+        let rendered: String = (0..area.width).map(|x| buf[(x, 0)].symbol()).collect();
+        assert!(
+            rendered.contains("2 agents"),
+            "expected agents chip in render: {rendered:?}",
+        );
     }
 
     #[test]
@@ -405,6 +476,7 @@ mod tests {
             Some(toast),
             "ready",
             palette::TEXT_MUTED,
+            Vec::<Span<'static>>::new(),
             Vec::<Span<'static>>::new(),
             Vec::<Span<'static>>::new(),
             Vec::<Span<'static>>::new(),
