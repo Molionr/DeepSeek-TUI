@@ -7,6 +7,7 @@
 //! - pinned message indices that compaction should preserve
 
 use crate::models::{ContentBlock, Message};
+use ignore::WalkBuilder;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,6 +16,80 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+
+/// Repo-aware resolver for `@`-mentions and file pickers.
+#[derive(Debug, Clone)]
+pub struct Workspace {
+    pub root: PathBuf,
+}
+
+impl Workspace {
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    /// Two-pass resolution: workspace, then cwd, then fuzzy fallback.
+    pub fn resolve(&self, raw_path: &str) -> Result<PathBuf, PathBuf> {
+        let path = expand_mention_home(raw_path);
+        if path.is_absolute() {
+            if path.exists() {
+                return Ok(path);
+            }
+            return Err(path);
+        }
+
+        let ws_path = self.root.join(&path);
+        if ws_path.exists() {
+            return Ok(ws_path);
+        }
+
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_path = cwd.join(&path);
+            if cwd_path.exists() {
+                return Ok(cwd_path);
+            }
+        }
+
+        // Fuzzy fallback
+        if let Some(fuzzy) = self.fuzzy_resolve(&path) {
+            return Ok(fuzzy);
+        }
+
+        Err(ws_path)
+    }
+
+    fn fuzzy_resolve(&self, path: &Path) -> Option<PathBuf> {
+        let needle = path.file_name()?.to_string_lossy().to_lowercase();
+        if needle.is_empty() {
+            return None;
+        }
+
+        let mut builder = WalkBuilder::new(&self.root);
+        builder.hidden(true).follow_links(false).max_depth(Some(6));
+
+        for entry in builder.build().flatten() {
+            if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                if entry.file_name().to_string_lossy().to_lowercase() == needle {
+                    return Some(entry.path().to_path_buf());
+                }
+            }
+        }
+        None
+    }
+}
+
+fn expand_mention_home(path: &str) -> PathBuf {
+    if path == "~" {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home);
+        }
+    } else if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
 
 /// Configuration for working-set tracking.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -789,5 +864,36 @@ mod tests {
         use crate::compaction::estimate_tokens;
         let messages = vec![make_message("user", "src/main.rs")];
         assert!(estimate_tokens(&messages) > 0);
+    }
+
+    #[test]
+    fn workspace_resolve_respects_cwd_and_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let ws = Workspace::new(tmp.path().to_path_buf());
+        
+        let sub = tmp.path().join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        
+        let bar = sub.join("bar.txt");
+        std::fs::write(&bar, "bar").unwrap();
+        
+        let nested = tmp.path().join("nested/deep");
+        std::fs::create_dir_all(&nested).unwrap();
+        let file_md = nested.join("file.md");
+        std::fs::write(&file_md, "md").unwrap();
+
+        // Simulate CWD being /tmp/foo/sub
+        let old_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sub).unwrap();
+        
+        // Test 1: type @bar.txt from sub/ -> should resolve to sub/bar.txt
+        let res1 = ws.resolve("bar.txt").unwrap();
+        assert_eq!(res1.canonicalize().unwrap_or(res1), bar.canonicalize().unwrap_or(bar));
+        
+        // Test 2: type @nested/deep/file.md from sub/ -> should fall back to workspace root
+        let res2 = ws.resolve("nested/deep/file.md").unwrap();
+        assert_eq!(res2.canonicalize().unwrap_or(res2), file_md.canonicalize().unwrap_or(file_md));
+        
+        std::env::set_current_dir(old_cwd).unwrap();
     }
 }
